@@ -17,6 +17,7 @@ CEGARBox --reflexive --transitive formula_file
 ## Input
 CEGARBox takes as input formula defined by the grammar:
 
+```
 Fml : '(' Fml ')'         
     | '~' Fml            
     | '<>' Fml       
@@ -34,6 +35,7 @@ Fml : '(' Fml ')'
     | String                 
     | true                
     | false               
+```
 
 where a String is alphanumeric.
 
