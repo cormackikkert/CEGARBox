@@ -43,7 +43,7 @@ So for example, when running CEGARBox on an intohylo file (say formula.intohylo)
 1. remove the "begin" line
 2. remove the "end" line
 3. replace [r1] with []
-4. replace <r1> with <>
+4. replace \<r1\> with <>
 
 then call:
 ```
