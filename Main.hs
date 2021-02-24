@@ -40,8 +40,9 @@ main = runCommand $ \opts args -> do
 
     let parsed = (calc . lexer) hap
     
-    let formula = simplify $ negatedNormalForm $ stmtToFormula parsed
-    
+    let formula
+            | optValid opts = simplify $ negatedNormalForm $ Not (stmtToFormula parsed)
+            | otherwise = simplify $ negatedNormalForm $ stmtToFormula parsed
 
     counter <- makeCounter
     let producer = uniqueLit counter
@@ -67,24 +68,27 @@ main = runCommand $ \opts args -> do
 
     result <- getResult opts i2c
 
-    putStrLn (case result of
-        Satisfiable -> "Satisfiable"
-        Unsatisfiable _ -> "Unsatisfiable"
+
+    putStrLn (case (result, optValid opts)  of
+        (Satisfiable, False) -> "Satisfiable"
+        (Unsatisfiable _, False) -> "Unsatisfiable"
+        (Satisfiable, _) -> "Invalid"
+        (Unsatisfiable _, _) -> "Valid"
         )
 
     where
         getType opts
-            | optTransitive opts && optReflexive opts = 2           -- S4
+            | optReflexiveTransitive opts = 2                       -- S4
             | optReflexive opts = 1                                 -- KT
             | otherwise = 0                                         -- K
         getModel opts res
-            | optTransitive opts && optReflexive opts = processS4 res -- S4
+            | optReflexiveTransitive opts = processS4 res             -- S4
             | optReflexive opts = backpropKT res                      -- KT
             | otherwise = res                                         -- K
         getResult opts res
-            | optTransitive opts && optReflexive opts = proveTheoremT res  -- S4
+            | optReflexiveTransitive opts = proveTheoremT res              -- S4
             | optReflexive opts = proveTheoremKT res                       -- KT
             | otherwise = proveTheoremK res                                -- K
         getSimplification opts res 
-            | optTransitive opts && optReflexive opts = simplifyS4 res
+            | optReflexiveTransitive opts = simplifyS4 res
             | otherwise = res

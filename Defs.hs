@@ -75,13 +75,16 @@ polarityHigh = True
 
 data MainOptions = MainOptions
     { optReflexive :: Bool
-    , optTransitive :: Bool
+    , optReflexiveTransitive :: Bool
+    , optValid :: Bool
     }
 
 instance Options MainOptions where
     defineOptions = pure MainOptions
         <*> simpleOption "reflexive" False
             "Handle relations as reflexive"
-        <*> simpleOption "transitive" False
+        <*> simpleOption "reflexive-transitive" False
+            "Handle relations as reflexive-transitive"
+        <*> simpleOption "valid" False
             "Handle relations as transitive"
             
