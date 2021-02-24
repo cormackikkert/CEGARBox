@@ -19,6 +19,11 @@ CEGARBox --reflexive --transitive formula_file
 ```
 If you want to test the validity of a formula, negate it and see if the output is Unsatisfiable. 
 
+K4 is unsupported. e.g. the following will give incorrect results:
+```
+CEGARBox --transitive formula_file
+```
+
 ## Input
 CEGARBox takes as input formula defined by the grammar:
 
