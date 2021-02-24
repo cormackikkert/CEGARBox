@@ -1,7 +1,11 @@
 # CEGARBox
 
 ## Installation
-Install Haskell. Then issue: 
+Install Haskell with:
+```
+sudo apt-get install haskell-platform
+```
+Then issue: 
 ```
 cabal install
 ```
