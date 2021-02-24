@@ -15,14 +15,9 @@ CEGARBox can determine the satisfiability of formulae in the logics K, KT, and S
 ```
 CEGARBox formula_file
 CEGARBox --reflexive formula_file
-CEGARBox --reflexive --transitive formula_file
+CEGARBox --reflexive-transitive formula_file
 ```
-If you want to test the validity of a formula, negate it and see if the output is Unsatisfiable. 
-
-K4 is unsupported. e.g. the following will give incorrect results:
-```
-CEGARBox --transitive formula_file
-```
+If you want to test the validity of a formula, add the flag ```--valid```
 
 ## Input
 CEGARBox takes as input formula defined by the grammar:
