@@ -1,0 +1,19 @@
+(Node False 
+    Leaf 
+    (Node False 
+        (Node False 
+            (Node False 
+                (Node False 
+                    (Node False 
+                        Leaf 
+                        (Node True Leaf Leaf)
+                    ) 
+                    Leaf
+                ) 
+                Leaf
+            ) 
+            Leaf
+        ) 
+        Leaf
+    )
+)

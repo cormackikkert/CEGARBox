@@ -1,9 +1,13 @@
 {-# LANGUAGE TypeOperators #-}
 module Defs where 
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
+import qualified Data.Set as TreeSet
 import MiniSat
 import Control.Applicative
 import Options
+import SupersetDS 
+import Data.Hashable
+import Foreign.Storable
 
 type Name = String
 
@@ -65,9 +69,9 @@ exactCacheType = case cacheType of
         ExactCache -> True
         _ -> False
 
-data Assumps = SetAssumps (Set.Set Lit) | ListAssumps [Lit]
+data Assumps = SetAssumps (TreeSet.Set Lit) | ListAssumps [Lit]
     deriving (Show)
-data Cache = SetCache (Set.Set [Lit]) | ListCache [Set.Set Lit]
+data Cache = SetCache (Set.HashSet [Lit]) | ListCache [Set.HashSet Lit] | TrieCache BinaryTree
     deriving (Show)
 
 -- POLARITY
@@ -88,3 +92,9 @@ instance Options MainOptions where
         <*> simpleOption "valid" False
             "Handle relations as transitive"
             
+instance Hashable Lit where
+    hashWithSalt s lit
+        | minisat_sign lit = case minisat_var lit of
+            MkVar x -> s - fromIntegral (toInteger x)
+        | otherwise = case minisat_var lit of
+            MkVar x -> s + fromIntegral (toInteger x)

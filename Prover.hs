@@ -6,7 +6,8 @@ import qualified Data.Map.Strict as Map.Strict
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
+import qualified Data.HashSet as Set
+import qualified Data.Set as TreeSet
 import Data.List
 import Data.Foldable (toList)
 import MiniSat
@@ -15,6 +16,7 @@ import Defs
 import Data.Maybe
 import System.IO
 import Debug.Trace
+import SupersetDS
 
 -- TODO: addClause bool
 -- no-luby
@@ -120,14 +122,18 @@ prepareSat extra (TrieForm d f1 f2 f3 Nothing _ _ _ trie) = do
         --     return ([negatedNormalForm (Not a) :|: nl | a <- as] ++ nf1, (n, nl :-> r):f2, f3)
 
 initCache = initCache' cacheType
-initCache' SubsetCache = ListCache []
+initCache' SubsetCache = TrieCache Leaf
 initCache' ExactCache = SetCache (Set.fromList [])
 
 initAssumps = initAssumps' cacheType
-initAssumps' SubsetCache = SetAssumps (Set.fromList [])
+initAssumps' SubsetCache = SetAssumps (TreeSet.fromList [])
 initAssumps' ExactCache = ListAssumps []
 
-assumpsToLit (SetAssumps x) = Set.toList x
+createAssumps = createAssumps' cacheType
+createAssumps' SubsetCache x = SetAssumps (TreeSet.fromList x)
+createAssumps' ExactCache x = ListAssumps x
+
+assumpsToLit (SetAssumps x) = TreeSet.toList x
 assumpsToLit (ListAssumps x) = x
 
 proveTheoremK :: TrieForm -> IO Result
@@ -161,15 +167,19 @@ proverS isKT level assumps tf@(TrieForm _ _ _ _ (Just ((sat, memo), _, univ, _, 
     -- insane bug: changing clauses whilst doing recursion messes things up
     -- print(level, assumps, g)
     -- print("EH", assumps)
-    if if' isKT (modelReuseGlobal level tf assumps g) (modelReuse assumps memo) then  do  --not (IntMap.null trie) && 
-        -- print "Found"
-        return (Satisfiable, (tf, g))
+    -- print("MODEL REUSE", univ, assumps, memo)
+    -- print(univ)
+    if quickCheck assumps && (if' isKT (modelReuseGlobal level tf assumps g) (modelReuse univ assumps memo)) then  do  --not (IntMap.null trie) && 
+        -- print ("Found", assumps, memo)
+        return $! (Satisfiable, (tf, g))
     else do 
         -- if not (IntMap.null trie) then 
         --     print "Not found"
         -- else return ()
         -- print ("WA", level, assumpsToLit assumps)
+
         res <- solve sat (assumpsToLit assumps) -- is satisfiable
+
         if res then do
             valsB <- sequence [modelValueBool sat l | (n, l :-> r) <- boxes]
             valsD <- sequence [modelValueBool sat l | (n, l :-> r) <- dias]
@@ -201,14 +211,14 @@ proverS isKT level assumps tf@(TrieForm _ _ _ _ (Just ((sat, memo), _, univ, _, 
                 let compressbox = processBoxes [(n, [r | l :-> r <- lst]) | (n,lst) <- trigBox'']
                 let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
                 -- print("REE1", dias `zip` allDia)
-                proverHelperS isKT level (ListAssumps [r | (n, l :-> r) <- trigBox']) (dias `zip` allDia) dict tf assumps g []
+                proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox']) (dias `zip` allDia) dict tf assumps g []
             else do
                 -- print("many worlds", tdias)
                 -- do typical approach
                 -- let diff = trigDia `Set.difference` trigBox
-                let allDia = [eval && Set.notMember r tboxs | ((n, l :-> r), eval) <- dias `zip` valsD]
+                let allDia = [eval && (not (Set.member r tboxs)) | ((n, l :-> r), eval) <- dias `zip` valsD]
 
-                let trigDia' = filter (\(n, l :-> r) -> Set.notMember r tboxs) trigDia 
+                let trigDia' = filter (\(n, l :-> r) -> not (Set.member r tboxs)) trigDia 
                 let trigBox'' = squashFast trigBox -- squash allNums (Set.toList trigBox)  --[(n, l :-> r) | ((n, l :-> r), True) <- boxes `zip` valsB]
                 let trigDia'' = squashFast trigDia' --squash allNums (Set.toList trigDia') --[(n, l :-> r) | ((n, l :-> r), True) <- dias `zip` valsD]
 
@@ -216,29 +226,32 @@ proverS isKT level assumps tf@(TrieForm _ _ _ _ (Just ((sat, memo), _, univ, _, 
 
                 -- let compressbox = processBoxes [(n, [r | l :-> r <- lst]) | (n,lst) <- trigBox'']
                 let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
-                -- print("REE2", dias `zip` allDia, assumps)
-                proverHelperS isKT level (ListAssumps [r | (n, l :-> r) <- trigBox]) (dias `zip` allDia) dict tf assumps g []
+                -- print("REE2", dias `zip` allDia)
+                -- print(trigBox, createAssumps [r | (n, l :-> r) <- trigBox])
+                proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox]) (dias `zip` allDia) dict tf assumps g []
         else do 
             aPrime <- map neg `fmap` conflict sat
-            return (Unsatisfiable aPrime, (tf, g))
+            
+            return $! (Unsatisfiable aPrime, (tf, g))
     where
         
         
         processBoxes = processBoxes' cacheType
-        processBoxes' SubsetCache lst = [(n, SetAssumps (Set.fromList d)) | (n, d) <- lst] 
+        processBoxes' SubsetCache lst = [(n, SetAssumps (TreeSet.fromList d)) | (n, d) <- lst] 
         processBoxes' ExactCache lst = [(n, ListAssumps d) | (n, d) <- lst]
 
 -- boxes can be in set to make things speedy
 proverHelperS :: Bool -> Int -> Assumps -> [((Int, Lit :-> Lit), Bool)] -> [Map.Map Lit Lit] -> TrieForm -> Assumps ->  Map.Map [Formula] Int -> [(Int, Lit :-> Lit)] -> IO (Result, (TrieForm, Map.Map [Formula] Int)) 
 proverHelperS False _ _ [] dict (TrieForm u0 u1 u2 u3 (Just ((sat, SetCache memo), u4, univ, np, ni)) u5 u6 u7 trie) (ListAssumps assumps) g nds = do
-    -- ExactCache (K)
-    return (Satisfiable, (TrieForm u0 u1 u2 u3 (Just ((sat, SetCache $ Set.insert assumps memo), u4, univ, np, ni)) u5 u6 u7 trie, g))
+    {-# SCC "insert" #-} return $! (Satisfiable, (TrieForm u0 u1 u2 u3 (Just ((sat, SetCache $ Set.insert assumps memo), u4, univ, np, ni)) u5 u6 u7 trie, g))
 
-proverHelperS True _ _ [] dict (TrieForm u0 u1 u2 u3 (Just ((sat, ListCache memo), u4, univ, np, ni)) u5 u6 u7 trie) (SetAssumps assumps) g nds = do
+proverHelperS False _ _ [] dict (TrieForm u0 u1 u2 u3 (Just ((sat, TrieCache memo), u4, univ, np, ni)) u5 u6 u7 trie) (SetAssumps assumps) g nds = do
     -- SetCache (K)
+    -- print("INSERT 2")
     big_assumps_bool <- sequence [modelValueBool sat v | v <- univ]
-    let big_assumps = Set.fromList [if isTrue then v else neg v | (v, isTrue) <- univ `zip` big_assumps_bool]
-    return (Satisfiable, (TrieForm u0 u1 u2 u3 (Just ((sat, ListCache $ big_assumps:memo), u4, univ, np, ni)) u5 u6 u7 trie, g))
+    let big_assumps = [if isTrue then v else neg v | (v, isTrue) <- univ `zip` big_assumps_bool]
+    -- print("INSERT", big_assumps, univ)
+    return $! (Satisfiable, (TrieForm u0 u1 u2 u3 (Just ((sat, TrieCache (memo `trieSetInsert` big_assumps)), u4, univ, np, ni)) u5 u6 u7 trie, g))
 
 -- proverHelperS True _ [] [] dict tf@(TrieForm u0 u1 u2 u3 (Just ((sat, SetCache memo), u4, univ, np)) u5 u6 trie) (ListAssumps assumps) g = do
 --     -- ExactCache (K)
@@ -248,12 +261,14 @@ proverHelperS True _ _ [] dict (TrieForm u0 u1 u2 u3 (Just ((sat, ListCache memo
 --         repeatInsert assumps (TrieForm u0 u1 u2 u3 (Just ((sat, SetCache memo), u4, univ, np)) u5 u6 trie)
 --             | IntMap.null trie = TrieForm u0 u1 u2 u3 (Just ((sat, SetCache $ Set.insert assumps memo), u4, univ, np)) u5 u6 trie
 --             | otherwise = TrieForm u0 u1 u2 u3 (Just ((sat, SetCache $ Set.insert assumps memo), u4, univ, np)) u5 u6 (IntMap.insert 1 (repeatInsert assumps (fromJust $! IntMap.lookup 1 trie)) trie)
-proverHelperS True level _ [] dict tf@(TrieForm u0 u1 u2 u3 (Just ((sat, SetCache memo), u4, univ, np, ni)) u5 u6 u7 trie) (ListAssumps assumps) g nds =
-    return (Satisfiable, (tf, Map.insert (map ni assumps) level g))
+proverHelperS True level _ [] dict tf@(TrieForm u0 u1 u2 u3 (Just ((sat, SetCache memo), u4, univ, np, ni)) u5 u6 u7 trie) (ListAssumps assumps) g nds = do
+    -- print("INSERT 3")
+    return $! (Satisfiable, (tf, Map.insert (map ni assumps) level g))
 
 
 proverHelperS isKT level b ((d, False):ds) (dict:dx) tf@(TrieForm _ _ _ _ (Just ((sat, _), _, _, _, _)) _ _ _ trie) assumps g nds = proverHelperS isKT level b ds (dict:dx) tf assumps g (d:nds)
 proverHelperS isKT level b ((fd@(n, a :-> d), True):ds) (dict:dx) tf@(TrieForm u0 u1 u2 u3 (Just ((sat, u4), u5, uu, np, ni)) u6 u7 u8 trie) assumps g nds = do 
+    -- print("YOLO")
     (res, (child, ng)) <- proverS isKT (level + 1) (combineAssumps b d) (fromJust $! IntMap.lookup n trie) g
     let ntf = TrieForm u0 u1 u2 u3 (Just ((sat, u4), u5, uu, np, ni)) u6 u7 u8 (IntMap.insert n child trie)
     case res of
@@ -264,22 +279,22 @@ proverHelperS isKT level b ((fd@(n, a :-> d), True):ds) (dict:dx) tf@(TrieForm u
             do  
                 if d `elem` fail then do
                     -- print "NORMAL CLAUSE"
-                    let res = Set.toList $ Set.fromList [neg $! fromJust $! Map.lookup x dict | x <- fail]
+                    let res = [neg $! fromJust $! Map.lookup x dict | x <- fail] --Set.toList $ Set.fromList [neg $! fromJust $! Map.lookup x dict | x <- fail]
                     addClause sat res
                     
-                    let htf@(TrieForm za zb zc zd ze zf zg zh zi) = ntf
-                    let newDias = fd : (reverse nds) ++ [x | (x, _) <- ds]
-                    proverS isKT level assumps (TrieForm za zb zc zd ze zf newDias zh zi) ng
+                    -- let htf@(TrieForm za zb zc zd ze zf zg zh zi) = ntf
+                    -- let newDias = fd : (nds) ++ [x | (x, _) <- ds]
+                    proverS isKT level assumps ntf ng --(TrieForm za zb zc zd ze zf zg zh zi) ng --zg is heuristic
                 else do
                     -- print "MEGA BOOM"
                     sequence_ 
-                        [ addClause sat (Set.toList $ Set.fromList $ (neg $ u5 dx) : [neg $! fromJust $! Map.lookup x dict | x <- fail])
+                        [ addClause sat ((neg $ u5 dx) : [neg $! fromJust $! Map.lookup x dict | x <- fail]) --here too (SET)
                             | (_, dx :-> _) <- u3
                         ]
                     proverS isKT level assumps ntf ng
     where 
         combineAssumps (ListAssumps b) d = ListAssumps (d:b)
-        combineAssumps (SetAssumps b) d = SetAssumps (Set.insert d b)
+        combineAssumps (SetAssumps b) d = SetAssumps (TreeSet.insert d b)
 
 prepareSatT :: [Name] -> [Formula] -> TrieForm -> IO TrieForm 
 prepareSatT extra extraBoxes (TrieForm d f1 f2 f3 Nothing _ _ _ trie) = do
@@ -324,7 +339,7 @@ prepareSatT extra extraBoxes (TrieForm d f1 f2 f3 Nothing _ _ _ trie) = do
         helper :: [Int] -> TrieForm -> IO TrieForm
         helper [] t = return t
         helper (x:xs) (TrieForm d f1 f2 f3 f _ _ _ t) = do
-            ps <- prepareSatT (Set.toList $ Set.fromList $ concatMap (getTerms []) [r | (x, l :-> r) <- f3]) (Set.toList $ Set.fromList $ extraBoxes ++ [r | (x, l :-> r) <- f2]) (fromJust $ IntMap.lookup x t)
+            ps <- prepareSatT (TreeSet.toList $ TreeSet.fromList $ concatMap (getTerms []) [r | (x, l :-> r) <- f3]) (TreeSet.toList (TreeSet.fromList (extraBoxes ++ [r | (x, l :-> r) <- f2]))) (fromJust $ IntMap.lookup x t)
             let nt = IntMap.insert x ps t
             helper xs (TrieForm d f1 f2 f3 f [] [] [] nt)
 
@@ -366,8 +381,8 @@ proverT level box_assumps dia_assump tf@(TrieForm _ f1 f2 f3 (Just ((sat, memo),
     let assumps = dia_assump ++ box_assumps -- map flit dia_assump ++ map (persistant . flit) box_assumps
     let set_assumps = Set.fromList assumps
     let set_box_assumps = Set.fromList box_assumps
-    let tassumps = if' exactCacheType (ListAssumps assumps) (SetAssumps $ Set.fromList assumps)
-    if modelReuse tassumps memo || modelReuse tassumps cur_memo then do
+    let tassumps = if' exactCacheType (ListAssumps assumps) (SetAssumps $ TreeSet.fromList assumps)
+    if modelReuse univ tassumps memo || modelReuse univ tassumps cur_memo then do
         return (SatisfiableT (level, initCache), tf, h:hs)
     else
         case checkBackEdge assumps history of
@@ -399,7 +414,7 @@ proverT level box_assumps dia_assump tf@(TrieForm _ f1 f2 f3 (Just ((sat, memo),
 
                     let hdias= sortBy (\(a, _) (b, _) -> heuristic h a b) (filter snd (dias `zip` keepDia))
   
-                    (ans, TrieForm d f1 f2 f3 nJust nboxes ndias ndiasC ntrie, nh) <- proverHelperT level hdias dict tf box_assumps (newBox ++ box_assumps) dia_assump tassumps (Set.fromList []) history level cur_memo initCache (h:hs) []
+                    (ans, TrieForm d f1 f2 f3 nJust nboxes ndias ndiasC ntrie, nh) <- proverHelperT level hdias dict tf box_assumps (newBox ++ box_assumps) dia_assump tassumps (TreeSet.fromList []) history level cur_memo initCache (h:hs) []
                     return (ans, TrieForm d f1 f2 f3 nJust nboxes ndias ndiasC ntrie, nh)
                 else do
                     aPrime <- map neg `fmap` conflict sat
@@ -412,7 +427,7 @@ proverT level box_assumps dia_assump tf@(TrieForm _ f1 f2 f3 (Just ((sat, memo),
             Nothing -> Nothing 
         
 
-proverHelperT :: Int -> [((Int, Lit :-> Lit), Bool)] -> Map.Map Lit Lit -> TrieForm -> [Lit] -> [Lit] -> [Lit] -> Assumps -> Set.Set Lit -> Map.Map [Lit] Int -> Int -> Cache -> Cache -> [Map.Map Lit Int] -> [(Int, Lit :-> Lit)] -> IO (ResultT, TrieForm, [Map.Map Lit Int]) 
+proverHelperT :: Int -> [((Int, Lit :-> Lit), Bool)] -> Map.Map Lit Lit -> TrieForm -> [Lit] -> [Lit] -> [Lit] -> Assumps -> TreeSet.Set Lit -> Map.Map [Lit] Int -> Int -> Cache -> Cache -> [Map.Map Lit Int] -> [(Int, Lit :-> Lit)] -> IO (ResultT, TrieForm, [Map.Map Lit Int]) 
 proverHelperT level [] dict (TrieForm d u1 u2 u3 (Just ((sat, memo), u4, univ, p, i)) uf u6 u7 trie) orig_box_assumps box_assumps dia_assump (SetAssumps assumps) big_assumps history min_back_edge orig_memo added_memo (h:hs) ndias =
     -- Subset Cache
     if level == min_back_edge then
@@ -507,15 +522,24 @@ combineCache (ListCache s1) (ListCache s2) = ListCache (s1 ++ s2)
 
 insertCache :: Assumps -> Cache -> Cache
 insertCache (ListAssumps assumps) (SetCache cache) = SetCache (Set.insert assumps cache)
-insertCache (SetAssumps assumps) (ListCache cache) = ListCache (assumps : cache)
+insertCache (SetAssumps assumps) (TrieCache cache) = TrieCache (cache `trieSetInsert` TreeSet.toList assumps)
 
 if' :: Bool -> a -> a -> a
 if' True x _ = x
 if' False _ y = y
 
+-- quick check
+quickCheck (SetAssumps assumps) = quickCheck' (TreeSet.toList assumps)
+quickCheck (ListAssumps assumps) = quickCheck' assumps 
+quickCheck' xs = not $ any (\(a, b) -> minisat_negate a == b) (zip xs (tail xs))
+
 modelReuse = modelReuse' cacheType
-modelReuse' SubsetCache (SetAssumps assumps) (ListCache memo) = any (Set.isSubsetOf assumps) memo
-modelReuse' ExactCache (ListAssumps assumps) (SetCache memo) = assumps `Set.member` memo
+modelReuse' SubsetCache univ (SetAssumps assumps) (TrieCache memo)
+    | TreeSet.null assumps = case memo of 
+        Leaf -> False
+        _ -> True -- If assumps is emtpy, answer is Yes if TrieSet contains an element
+    | otherwise = trieSetFindSuperset memo (TreeSet.toList assumps) univ
+modelReuse' ExactCache univ (ListAssumps assumps) (SetCache memo) = assumps `Set.member` memo
 
 modelReuseGlobal level (TrieForm _ _ _ _ (Just (_, _, _, _, inv)) _ _ _ _) (ListAssumps assumps) g = case Map.lookup fassumps g of
     Just glevel -> level >= glevel
