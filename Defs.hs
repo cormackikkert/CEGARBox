@@ -60,6 +60,8 @@ reuseRenameType = case rename of
     ReuseRenaming -> True
     _ -> False
 
+subsetOpt = True -- subset thing
+
 -- CACHE
 
 data Caching = ExactCache | SubsetCache

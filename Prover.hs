@@ -189,38 +189,58 @@ proverS isKT level assumps tf@(TrieForm _ _ _ _ (Just ((sat, memo), _, univ, _, 
             let trigBox = [(n, l :-> r) | ((n, l :-> r), True) <- boxes `zip` valsB]
             let trigDia = [(n, l :-> r) | ((n, l :-> r), True) <- dias `zip` valsD]
             
-            let tdias = Set.fromList [r | (_, _ :-> r) <- trigDia]
-            let tboxs = Set.fromList [r | (_, _ :-> r) <- trigBox]
 
-            if (tdias `Set.isSubsetOf` tboxs) && not (Set.null tdias) then do
-                -- print("1 world")
-                -- create 1 world that satisfies everything     
-                let trigDia' = head trigDia -- fromJust $ Set.lookupMin trigDia
-                let (_, _ :-> actualDia) = trigDia'
-                let trigBox' = filter (\(n, l :-> r) -> r /= actualDia) trigBox
+            
+            if subsetOpt then do
+                let tdias = Set.fromList [r | (_, _ :-> r) <- trigDia]
+                let tboxs = Set.fromList [r | (_, _ :-> r) <- trigBox]
 
-                let allDia = [eval && (x == trigDia') | (x, eval) <- dias `zip` valsD]
+                if (tdias `Set.isSubsetOf` tboxs) && not (Set.null tdias) then do
+                    -- print("1 world")
+                    -- create 1 world that satisfies everything     
+                    let trigDia' = head trigDia -- fromJust $ Set.lookupMin trigDia
+                    let (_, _ :-> actualDia) = trigDia'
+                    let trigBox' = filter (\(n, l :-> r) -> r /= actualDia) trigBox
 
-                -- print(dias, valsD, allDia)
+                    let allDia = [eval && (x == trigDia') | (x, eval) <- dias `zip` valsD]
 
-                let trigBox'' = squashFast trigBox' -- squash allNums (Set.toList trigBox')
-                let trigDia'' = squashFast [trigDia'] -- squash allNums [trigDia']
+                    -- print(dias, valsD, allDia)
 
-                let dict = [Map.fromList [(r, l) | (l :-> r) <- a ++ b] | ((_, a), (_, b)) <- trigDia'' `zip` trigBox'']
+                    let trigBox'' = squashFast trigBox' -- squash allNums (Set.toList trigBox')
+                    let trigDia'' = squashFast [trigDia'] -- squash allNums [trigDia']
 
-                let compressbox = processBoxes [(n, [r | l :-> r <- lst]) | (n,lst) <- trigBox'']
-                let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
-                -- print("REE1", dias `zip` allDia)
-                proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox']) (dias `zip` allDia) dict tf assumps g []
+                    let dict = [Map.fromList [(r, l) | (l :-> r) <- a ++ b] | ((_, a), (_, b)) <- trigDia'' `zip` trigBox'']
+
+                    let compressbox = processBoxes [(n, [r | l :-> r <- lst]) | (n,lst) <- trigBox'']
+                    let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
+                    -- print("REE1", dias `zip` allDia)
+                    proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox']) (dias `zip` allDia) dict tf assumps g []
+                else do
+                    -- print("many worlds", tdias)
+                    -- do typical approach
+                    -- let diff = trigDia `Set.difference` trigBox
+                    let allDia = [eval && (not (Set.member r tboxs)) | ((n, l :-> r), eval) <- dias `zip` valsD]
+
+                    let trigDia' = filter (\(n, l :-> r) -> not (Set.member r tboxs)) trigDia 
+                    let trigBox'' = squashFast trigBox -- squash allNums (Set.toList trigBox)  --[(n, l :-> r) | ((n, l :-> r), True) <- boxes `zip` valsB]
+                    let trigDia'' = squashFast trigDia' --squash allNums (Set.toList trigDia') --[(n, l :-> r) | ((n, l :-> r), True) <- dias `zip` valsD]
+
+                    let dict = [Map.fromList [(r, l) | (l :-> r) <- a ++ b] | ((_, a), (_, b)) <- trigDia'' `zip` trigBox'']
+
+                    -- let compressbox = processBoxes [(n, [r | l :-> r <- lst]) | (n,lst) <- trigBox'']
+                    let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
+                    -- print("REE2", dias `zip` allDia)
+                    -- print(trigBox, createAssumps [r | (n, l :-> r) <- trigBox])
+                    proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox]) (dias `zip` allDia) dict tf assumps g []
             else do
                 -- print("many worlds", tdias)
                 -- do typical approach
                 -- let diff = trigDia `Set.difference` trigBox
-                let allDia = [eval && (not (Set.member r tboxs)) | ((n, l :-> r), eval) <- dias `zip` valsD]
+                let allDia = [eval | ((n, l :-> r), eval) <- dias `zip` valsD]
 
-                let trigDia' = filter (\(n, l :-> r) -> not (Set.member r tboxs)) trigDia 
+                -- let trigDia' = filter (\(n, l :-> r) -> not (Set.member r tboxs)) trigDia 
                 let trigBox'' = squashFast trigBox -- squash allNums (Set.toList trigBox)  --[(n, l :-> r) | ((n, l :-> r), True) <- boxes `zip` valsB]
-                let trigDia'' = squashFast trigDia' --squash allNums (Set.toList trigDia') --[(n, l :-> r) | ((n, l :-> r), True) <- dias `zip` valsD]
+                let trigDia'' = squashFast trigDia --squash allNums (Set.toList trigDia') --[(n, l :-> r) | ((n, l :-> r), True) <- dias `zip` valsD]
 
                 let dict = [Map.fromList [(r, l) | (l :-> r) <- a ++ b] | ((_, a), (_, b)) <- trigDia'' `zip` trigBox'']
 
@@ -228,7 +248,7 @@ proverS isKT level assumps tf@(TrieForm _ _ _ _ (Just ((sat, memo), _, univ, _, 
                 let compressdia = [(n, [r | l :-> r <- lst]) | (n,lst) <- trigDia'']
                 -- print("REE2", dias `zip` allDia)
                 -- print(trigBox, createAssumps [r | (n, l :-> r) <- trigBox])
-                proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox]) (dias `zip` allDia) dict tf assumps g []
+                proverHelperS isKT level (createAssumps [r | (n, l :-> r) <- trigBox]) (dias `zip` allDia) dict tf assumps g []   
         else do 
             aPrime <- map neg `fmap` conflict sat
             
